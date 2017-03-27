@@ -120,6 +120,15 @@ def summarize_vmrk(filename, data):
     # Incongruent accuracy
     results["fiacc"] = 100 * results["ficn"] / (results["ficn"] + results["fien"])
 
+    # Anticipatory responses
+    results["fan"] = np.sum(np.asarray(all_trials) < 150)
+    results["faen"] = np.sum(np.asarray(error_trials) < 150)
+
+    # Trials with extra responses
+    results["fscn"] = 0
+    for _, v in data.items():
+        results["fscn"] += sum(np.asarray(v.NT) > 3)
+
     return results
 
 
