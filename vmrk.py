@@ -97,7 +97,7 @@ def summarize_vmrk(filename, data):
     results["fcrtsdc"] = np.std(v)
 
     # Congruent error trials
-    v = data[(1, 15)].RT + data[(1, 16)].RT + data[(2, 15)].RT + data[(2, 16)].RT
+    v = data[(1, 15)].RT + data[(1, 16)].RT + data[(3, 15)].RT + data[(3, 16)].RT
     results["fcen"] = len(v)
     results["fcrtme"] = np.mean(v)
     results["fcrtsde"] = np.std(v)
