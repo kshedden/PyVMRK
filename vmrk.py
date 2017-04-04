@@ -263,9 +263,8 @@ def process_vmrk(filename):
 
     Returns
     -------
-    data : dictionary
-        data[(x, y)] contains all response times with stimulus type x and
-        response type y.
+    data : list of Blocks
+        data[j] contains all the data for block j.
     """
 
     fid = open(filename)
