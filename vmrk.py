@@ -1,55 +1,154 @@
 #!/usr/bin/python
 
 """
-Process one VMRK file into a set of summary statistics, optionally
-filtering outliers.
+Process one VMRK file into a set of summary statistics.
 
-The work is done in two steps.  First run process_vmrk to obtain a
-condensed form of the VMRK data, then run summarize_vmrk to obtain the
-summary statistics.
+TODO optionally filter outliers
+TODO allow selected blocks to be dropped
+
+The processing is done in two steps.  First run process_vmrk to obtain
+a condensed form of the VMRK data, then run summarize_vmrk to obtain
+the summary statistics.
 """
 
 import csv
 import numpy as np
 import os
+import sys
 import logging
 from collections import OrderedDict
 
-
-class smry(object):
+class Code(object):
     """
-    Holds all information about a set of trials
+    A stimulus/response code
+    """
+    def __init__(self, side, congruent, correct):
+        self.side = side
+        self.congruent = congruent
+        self.correct = correct
+
+    def __str__(self):
+        return "side=%s congruent=%r correct=%r" % (
+            self.side, self.congruent, self.correct)
+
+    def fromSRCodes(a, b):
+        if a in (1, 2):
+            side = "left"
+        else:
+            side = "right"
+        if a in (1, 3):
+            congruent = True
+        else:
+            congruent = False
+        if b in (5, 6):
+            correct = True
+        else:
+            correct = False
+
+        return Code(side, congruent, correct)
+
+
+class Trial(object):
+    """
+    Raw information about one trial.
+    """
+    def __init__(self, srcode, time):
+        self.srcode = srcode
+        self.time = time
+
+    def __str__(self):
+        return "srcode=%s time=%d" % (self.srcode, self.time)
+
+
+class Block(object):
+    """
+    Holds all information about a block of trials
     """
     def __init__(self):
-        self.RT = []  # Response times
-        self.NT = []  # Number of responses within a trial
+        self.Code = []    # Stimulus/response codes
+        self.Rtim = []    # Response times
+        self.Ntri = []    # Number of responses within a trial
 
+    def query(self, side=None, congruent=None, correct=None, lastcorrect=None):
+        """
+        Return all response times with a given stimulus/response code pair.
+        """
+        ret = []
+        for j, (c, x) in enumerate(zip(self.Code, self.Rtim)):
+            if side is not None and c.side != side:
+                continue
+            if congruent is not None and c.congruent != congruent:
+                continue
+            if correct is not None and c.correct != correct:
+                continue
+            if lastcorrect is not None and j > 0:
+                if self.Code[j-1].correct != lastcorrect:
+                    continue
+            ret.append(x)
 
-def process_trial(qu, data):
+        return ret
+
+    def postCorrectRtim(self):
+        """
+        Return all response times that follow a correct response.
+        """
+        ret = []
+        for k in range(1, len(self.Rtim)):
+            if self.KY[k-1][1] in (5, 6):
+                ret.append(self.Rtim[k])
+        return ret
+
+    def postErrorRtim(self):
+        """
+        Return all response times that follow an error response.
+        """
+        ret = []
+        for k in range(1, len(self.Rtim)):
+            if self.KY[k-1][1] in (5, 6):
+                ret.append(self.Rtim[k])
+        return ret
+
+    def __str__(self):
+        print(self.RT)
+
+def process_trial(qu, block):
     """
-    Insert summary values obtained from qu into data.
+    Insert summary values obtained from qu into block.
 
     Parameters
     ----------
     qu :
         Data from a single trial.
-    data :
+    block :
         All data grouped by trial/response type
     """
 
-    # Trial must start with S99 (fixation cross), then have a stimulus
-    # and response.  Return early if this is not the case.
-    if len(qu) < 3 or qu[0][0] != 99:
+    # A trial must start with S99 (fixation cross), then have a
+    # stimulus and response.  Return early if this is not the case.
+    if len(qu) < 3 or qu[0].srcode != 99:
         return
 
     # ky is the stimulus and response type
-    ky = (qu[1][0], qu[2][0])
+    code = Code.fromSRCodes(qu[1].srcode, qu[2].srcode)
 
     # Response time for first response, multiplication by 2 is a scale
     # conversion.
-    rt = 2 * (qu[2][1] - qu[1][1])
-    data[ky].RT.append(rt)
-    data[ky].NT.append(len(qu))
+    rt = 2 * (qu[2].time - qu[1].time)
+    block.Code.append(code)
+    block.Rtim.append(rt)
+    block.Ntri.append(len(qu))
+
+
+def collapse_blocks(data):
+    """
+    Collapse a list of blocks into a single block.
+    """
+    blk = Block()
+    for block in data:
+        blk.Code.extend(block.Code)
+        blk.Rtim.extend(block.Rtim)
+        blk.Ntri.extend(block.Ntri)
+    return blk
 
 
 def summarize_vmrk(filename, data):
@@ -60,19 +159,15 @@ def summarize_vmrk(filename, data):
     this function.
     """
 
+    data = collapse_blocks(data)
+
     results = OrderedDict()
 
     results["sid"] = filename.split(".")[0]
 
-    all_trials = []
-    correct_trials = []
-    error_trials = []
-    for k, v in data.items():
-        all_trials.extend(v.RT)
-        if k[1] in (5, 6):
-            correct_trials.extend(v.RT)
-        else:
-            error_trials.extend(v.RT)
+    all_trials = data.Rtim
+    correct_trials = [x for k,x in zip(data.Code, data.Rtim) if k.correct]
+    error_trials = [x for k,x in zip(data.Code, data.Rtim) if not k.correct]
 
     results["fcn"] = len(correct_trials)
     results["fen"] = len(error_trials)
@@ -91,13 +186,13 @@ def summarize_vmrk(filename, data):
     results["frtsde"] = np.std(error_trials)
 
     # Congruent correct trials
-    v = data[(1, 5)].RT + data[(1, 6)].RT + data[(3, 5)].RT + data[(3, 6)].RT
+    v = data.query(correct=True, congruent=True)
     results["fccn"] = len(v)
     results["fcrtmc"] = np.mean(v)
     results["fcrtsdc"] = np.std(v)
 
     # Congruent error trials
-    v = data[(1, 15)].RT + data[(1, 16)].RT + data[(3, 15)].RT + data[(3, 16)].RT
+    v = data.query(correct=False, congruent=True)
     results["fcen"] = len(v)
     results["fcrtme"] = np.mean(v)
     results["fcrtsde"] = np.std(v)
@@ -106,13 +201,13 @@ def summarize_vmrk(filename, data):
     results["fcacc"] = 100 * results["fccn"] / (results["fccn"] + results["fcen"])
 
     # Incongruent correct trials
-    v = data[(2, 5)].RT + data[(2, 6)].RT + data[(4, 5)].RT + data[(4, 6)].RT
+    v = data.query(correct=True, congruent=False)
     results["ficn"] = len(v)
     results["firtmc"] = np.mean(v)
     results["firtsdc"] = np.std(v)
 
     # Incongruent error trials
-    v = data[(2, 15)].RT + data[(2, 16)].RT + data[(4, 15)].RT + data[(4, 16)].RT
+    v = data.query(correct=False, congruent=False)
     results["fien"] = len(v)
     results["firtme"] = np.mean(v)
     results["firtsde"] = np.std(v)
@@ -120,28 +215,51 @@ def summarize_vmrk(filename, data):
     # Incongruent accuracy
     results["fiacc"] = 100 * results["ficn"] / (results["ficn"] + results["fien"])
 
+    # Post correct correct trials
+    v = data.query(correct=True, lastcorrect=True)
+    results["fpccn"] = len(v)
+
+    # Post correct error trials
+    v = data.query(correct=False, lastcorrect=True)
+    results["fpcen"] = len(v)
+
+    # Post error correct trials
+    v = data.query(correct=True, lastcorrect=False)
+    results["fpecn"] = len(v)
+    results["fpecrtm"] = np.mean(v)
+
+    # Post error error trials
+    v = data.query(correct=False, lastcorrect=False)
+    results["fpeen"] = len(v)
+    results["fpeertm"] = np.mean(v)
+
+    # Post correct accuracy
+    results["fpaccpc"] = results["fpccn"] / (results["fpccn"] + results["fpcen"])
+
+    # Post error accuracy
+    results["fpaccpe"] = results["fpecn"] / (results["fpecn"] + results["fpeen"])
+
+    # Post error slowing
+    results["fpes"] = results["fpeertm"] - results["fpecrtm"]
+
     # Anticipatory responses
     results["fan"] = np.sum(np.asarray(all_trials) < 150)
     results["faen"] = np.sum(np.asarray(error_trials) < 150)
 
     # Trials with extra responses
-    results["fscn"] = 0
-    for _, v in data.items():
-        results["fscn"] += sum(np.asarray(v.NT) > 3)
+    results["fscn"] = sum(np.asarray(data.Ntri) > 3)
 
     return results
 
 
-def process_vmrk(filename, save_reduced=False, log=False):
+def process_vmrk(filename):
     """
     Process the VMRK format file with name filename.
 
     Parameters
     ----------
-    save_reduced : boolean
-        If save_reduced is True, and the input file has name xyz.vmrk,
-        then a file called xyz_reduced.vmrk is created that contains
-        only the non-practice experiment records.
+    filename :
+        Name of a vmrk format file.
 
     Returns
     -------
@@ -150,32 +268,24 @@ def process_vmrk(filename, save_reduced=False, log=False):
         response type y.
     """
 
-    if log:
-        logging.basicConfig(filename=filename + ".log",
-                            level=logging.DEBUG)
-
     fid = open(filename)
     rdr = csv.reader(fid)
+
+    # Keep track of which block we are in
+    blocknum = 0
+    dblock = 0
 
     # Assume that we start in practice mode
     mode = "practice"
     qu = []
-    data = {}
-    for j in 1, 2, 3, 4:
-        for k in 5, 6, 15, 16:
-            data[(j, k)] = smry()
-
-    # Open file for reduced output
-    q = os.path.splitext(filename)
-    outname = q[0] + "_reduced" + q[1]
-    out = open(outname, "w")
+    data = []
+    block = Block()
 
     for line in rdr:
 
         # Only process "mark" lines
         if len(line) == 0 or not line[0].startswith("Mk"):
-            if log:
-                logging.info("Skipping row: %s" % line)
+            logging.info("Skipping row: %s" % line)
             continue
 
         # Lines have format Mk###=type, where type=comment, stimulus
@@ -190,32 +300,59 @@ def process_vmrk(filename, save_reduced=False, log=False):
             pass
         else:
             # Not sure what else exists, log it and move on
-            if log:
-                logging.info("Skipping row: %s" % line)
+            logging.info("Skipping row: %s" % line)
             continue
 
         if mode != "experiment":
             continue
 
-        out.write(",".join(line) + "\n")
-
         # Get the type code, e.g. if S16 then n=16
         f1 = line[1].replace(" ", "")
         n = int(f1[1:])
-        qu.append([n, int(line[2])])
+        qu.append(Trial(n, int(line[2])))
+
+        # Handle end of block markers
+        if n in (144, 255):
+            if dblock > 0:
+                process_trial(qu[0:-1], block)
+                qu = [qu[-1]]
+                blocknum += 1
+                dblock = 0
+                data.append(block)
+                block = Block()
+            continue
+        dblock += 1
 
         if n == 99:
-            process_trial(qu[0:-1], data)
+            process_trial(qu[0:-1], block)
             qu = [qu[-1]]
 
     # Final trial may not have been processed
-    process_trial(qu, data)
-
-    out.close()
+    process_trial(qu, block)
 
     return data
 
 
-filename = "000041.vmrk"
-data = process_vmrk(filename, log=True)
-results = summarize_vmrk(filename, data)
+if __name__ == "__main__":
+
+    if len(sys.argv) == 1:
+        print("no files")
+        sys.exit(0)
+
+    import csv
+
+    logging.basicConfig(filename="vmrk.log",
+                        level=logging.DEBUG)
+
+    results = []
+    for i, fname in enumerate(sys.argv[1:]):
+
+        data = process_vmrk(fname)
+        result = summarize_vmrk(fname, data)
+
+        if i == 0:
+            wtr = csv.writer(sys.stdout)
+            header = [k for k in result]
+            wtr.writerow(header)
+
+        wtr.writerow([result[k] for k in result])
