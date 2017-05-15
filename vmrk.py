@@ -18,6 +18,13 @@ import sys
 import logging
 from collections import OrderedDict
 
+# Outliers are defined to fall outside the interval (low, high)
+low = 150
+high = 3000
+
+# Should be 1
+ddof = 0
+
 class Code(object):
     """
     A stimulus/response code
@@ -68,6 +75,12 @@ class Block(object):
         self.Code = []    # Stimulus/response codes
         self.Rtim = []    # Response times
         self.Ntri = []    # Number of responses within a trial
+
+    def filter_outliers(self, low, high):
+        ii = [i for i, rt in enumerate(self.Rtim) if (rt >= low) and (rt <= high)]
+        self.Code = [self.Code[i] for i in ii]
+        self.Rtim = [self.Rtim[i] for i in ii]
+        self.Ntri = [self.Ntri[i] for i in ii]
 
     def query(self, side=None, congruent=None, correct=None, lastcorrect=None):
         """
@@ -138,6 +151,8 @@ def process_trial(qu, block):
     block.Rtim.append(rt)
     block.Ntri.append(len(qu))
 
+    block.filter_outliers(low, high)
+
 
 def collapse_blocks(data):
     """
@@ -175,27 +190,27 @@ def summarize_vmrk(filename, data):
 
     # All trial summaries
     results["frtm"] = np.mean(all_trials)
-    results["frtsd"] = np.std(all_trials, ddof=1)
+    results["frtsd"] = np.std(all_trials, ddof=ddof)
 
     # All correct trial summaries
     results["frtmc"] = np.mean(correct_trials)
-    results["frtsdc"] = np.std(correct_trials, ddof=1)
+    results["frtsdc"] = np.std(correct_trials, ddof=ddof)
 
     # All error trial summaries
     results["frtme"] = np.mean(error_trials)
-    results["frtsde"] = np.std(error_trials, ddof=1)
+    results["frtsde"] = np.std(error_trials, ddof=ddof)
 
     # Congruent correct trials
     v = cdata.query(correct=True, congruent=True)
     results["fccn"] = len(v)
     results["fcrtmc"] = np.mean(v)
-    results["fcrtsdc"] = np.std(v, ddof=1)
+    results["fcrtsdc"] = np.std(v, ddof=ddof)
 
     # Congruent error trials
     v = cdata.query(correct=False, congruent=True)
     results["fcen"] = len(v)
     results["fcrtme"] = np.mean(v)
-    results["fcrtsde"] = np.std(v, ddof=1)
+    results["fcrtsde"] = np.std(v, ddof=ddof)
 
     # Congruent accuracy
     results["fcacc"] = 100 * results["fccn"] / (results["fccn"] + results["fcen"])
@@ -204,13 +219,13 @@ def summarize_vmrk(filename, data):
     v = cdata.query(correct=True, congruent=False)
     results["ficn"] = len(v)
     results["firtmc"] = np.mean(v)
-    results["firtsdc"] = np.std(v, ddof=1)
+    results["firtsdc"] = np.std(v, ddof=ddof)
 
     # Incongruent error trials
     v = cdata.query(correct=False, congruent=False)
     results["fien"] = len(v)
     results["firtme"] = np.mean(v)
-    results["firtsde"] = np.std(v, ddof=1)
+    results["firtsde"] = np.std(v, ddof=ddof)
 
     # Incongruent accuracy
     results["fiacc"] = 100 * results["ficn"] / (results["ficn"] + results["fien"])
@@ -218,31 +233,63 @@ def summarize_vmrk(filename, data):
     # Post correct correct trials
     # (don't count first trial of each block)
     v = [b.query(correct=True, lastcorrect=True) for b in data]
-    results["fpccn"] = sum([len(x) - 1 for x in v])
+    results["fpccn"] = sum([max(0, len(x) - 1) for x in v])
 
     # Post correct error trials
-    v = cdata.query(correct=False, lastcorrect=True)
-    results["fpcen"] = len(v)
+    # (don't count first trial of each block)
+    v = [b.query(correct=False, lastcorrect=True) for b in data]
+    results["fpcen"] = sum([max(0, len(x) - 1) for x in v])
+    if results["fpcen"] > 0:
+        results["fpcertm"] = sum([sum(x[1:]) for x in v]) / results["fpcen"]
+    else:
+        results["fpcertm"] = 0.
 
     # Post error correct trials
     # (don't count first trial of each block)
     v = [b.query(correct=True, lastcorrect=False) for b in data]
-    results["fpecn"] = sum([len(x) - 1 for x in v])
-    results["fpecrtm"] = sum([sum(x[1:]) for x in v]) / results["fpecn"]
+    results["fpecn"] = sum([max(0, len(x) - 1) for x in v])
+    if results["fpecn"] > 0:
+        results["fpecrtm"] = sum([sum(x[1:]) for x in v]) / results["fpecn"]
+    else:
+        results["fpecrtm"] = 0.
 
     # Post error error trials
-    v = cdata.query(correct=False, lastcorrect=False)
-    results["fpeen"] = len(v)
-    results["fpeertm"] = np.mean(v)
+    # (don't count first trial of each block)
+    v = [b.query(correct=False, lastcorrect=False) for b in data]
+    results["fpeen"] = sum([max(0, len(x) - 1) for x in v])
+    if results["fpeen"] > 0:
+        results["fpeertm"] = sum([sum(x[1:]) for x in v]) / results["fpeen"]
+    else:
+        results["fpeertm"] = 0.
+
+    # Post error any trials
+    # (don't count first trial of each block)
+    v = [b.query(lastcorrect=False) for b in data]
+    results["fpexn"] = sum([max(0, len(x) - 1) for x in v])
+    if results["fpexn"] > 0:
+        results["fpexrtm"] = sum([sum(x[1:]) for x in v]) / results["fpexn"]
+    else:
+        results["fpexrtm"] = 0.
+
+    # Post any error trials
+    # (don't count first trial of each block)
+    v = [b.query(correct=False) for b in data]
+    results["fpxen"] = sum([max(0, len(x) - 1) for x in v])
+    if results["fpxen"] > 0:
+        results["fpxertm"] = sum([sum(x[1:]) for x in v]) / results["fpxen"]
+    else:
+        results["fpxertm"] = 0.
 
     # Post correct accuracy
-    results["fpaccpc"] = results["fpccn"] / (results["fpccn"] + results["fpcen"])
+    results["faccpc"] = results["fpccn"] / (results["fpccn"] + results["fpcen"])
 
     # Post error accuracy
-    results["fpaccpe"] = results["fpecn"] / (results["fpecn"] + results["fpeen"])
+    results["faccpe"] = results["fpecn"] / (results["fpecn"] + results["fpeen"])
 
     # Post error slowing
     results["fpes"] = results["fpeertm"] - results["fpecrtm"]
+    results["fpes2"] = results["fpcertm"] - results["fpecrtm"]
+    results["fpes3"] = results["fpxertm"] - results["fpexrtm"]
 
     # Anticipatory responses
     results["fan"] = np.sum(np.asarray(all_trials) < 150)
@@ -342,8 +389,7 @@ if __name__ == "__main__":
 
     import csv
 
-    logging.basicConfig(filename="vmrk.log",
-                        level=logging.DEBUG)
+    logging.basicConfig(filename="vmrk.log", level=logging.DEBUG)
 
     results = []
     for i, fname in enumerate(sys.argv[1:]):
