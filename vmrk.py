@@ -159,15 +159,15 @@ def summarize_vmrk(filename, data):
     this function.
     """
 
-    data = collapse_blocks(data)
+    cdata = collapse_blocks(data)
 
     results = OrderedDict()
 
     results["sid"] = filename.split(".")[0]
 
-    all_trials = data.Rtim
-    correct_trials = [x for k,x in zip(data.Code, data.Rtim) if k.correct]
-    error_trials = [x for k,x in zip(data.Code, data.Rtim) if not k.correct]
+    all_trials = cdata.Rtim
+    correct_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if k.correct]
+    error_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if not k.correct]
 
     results["fcn"] = len(correct_trials)
     results["fen"] = len(error_trials)
@@ -175,61 +175,63 @@ def summarize_vmrk(filename, data):
 
     # All trial summaries
     results["frtm"] = np.mean(all_trials)
-    results["frtsd"] = np.std(all_trials)
+    results["frtsd"] = np.std(all_trials, ddof=1)
 
     # All correct trial summaries
     results["frtmc"] = np.mean(correct_trials)
-    results["frtsdc"] = np.std(correct_trials)
+    results["frtsdc"] = np.std(correct_trials, ddof=1)
 
     # All error trial summaries
     results["frtme"] = np.mean(error_trials)
-    results["frtsde"] = np.std(error_trials)
+    results["frtsde"] = np.std(error_trials, ddof=1)
 
     # Congruent correct trials
-    v = data.query(correct=True, congruent=True)
+    v = cdata.query(correct=True, congruent=True)
     results["fccn"] = len(v)
     results["fcrtmc"] = np.mean(v)
-    results["fcrtsdc"] = np.std(v)
+    results["fcrtsdc"] = np.std(v, ddof=1)
 
     # Congruent error trials
-    v = data.query(correct=False, congruent=True)
+    v = cdata.query(correct=False, congruent=True)
     results["fcen"] = len(v)
     results["fcrtme"] = np.mean(v)
-    results["fcrtsde"] = np.std(v)
+    results["fcrtsde"] = np.std(v, ddof=1)
 
     # Congruent accuracy
     results["fcacc"] = 100 * results["fccn"] / (results["fccn"] + results["fcen"])
 
     # Incongruent correct trials
-    v = data.query(correct=True, congruent=False)
+    v = cdata.query(correct=True, congruent=False)
     results["ficn"] = len(v)
     results["firtmc"] = np.mean(v)
-    results["firtsdc"] = np.std(v)
+    results["firtsdc"] = np.std(v, ddof=1)
 
     # Incongruent error trials
-    v = data.query(correct=False, congruent=False)
+    v = cdata.query(correct=False, congruent=False)
     results["fien"] = len(v)
     results["firtme"] = np.mean(v)
-    results["firtsde"] = np.std(v)
+    results["firtsde"] = np.std(v, ddof=1)
 
     # Incongruent accuracy
     results["fiacc"] = 100 * results["ficn"] / (results["ficn"] + results["fien"])
 
     # Post correct correct trials
-    v = data.query(correct=True, lastcorrect=True)
-    results["fpccn"] = len(v)
+    # (don't count first trial of each block)
+    v = [b.query(correct=True, lastcorrect=True) for b in data]
+    results["fpccn"] = sum([len(x) - 1 for x in v])
 
     # Post correct error trials
-    v = data.query(correct=False, lastcorrect=True)
+    v = cdata.query(correct=False, lastcorrect=True)
     results["fpcen"] = len(v)
 
     # Post error correct trials
-    v = data.query(correct=True, lastcorrect=False)
-    results["fpecn"] = len(v)
-    results["fpecrtm"] = np.mean(v)
+    # (don't count first trial of each block)
+    v = [b.query(correct=True, lastcorrect=False) for b in data]
+    results["fpecn"] = sum([len(x) - 1 for x in v])
+    results["fpecrtm"] = sum([sum(x[1:]) for x in v]) / results["fpecn"]
 
     # Post error error trials
-    v = data.query(correct=False, lastcorrect=False)
+    v = cdata.query(correct=False, lastcorrect=False)
     results["fpeen"] = len(v)
     results["fpeertm"] = np.mean(v)
 
@@ -247,7 +249,7 @@ def summarize_vmrk(filename, data):
     results["faen"] = np.sum(np.asarray(error_trials) < 150)
 
     # Trials with extra responses
-    results["fscn"] = sum(np.asarray(data.Ntri) > 3)
+    results["fscn"] = sum(np.asarray(cdata.Ntri) > 3)
 
     return results
 
