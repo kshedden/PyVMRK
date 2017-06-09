@@ -325,8 +325,8 @@ def process_vmrk(filename):
 
     # Assume that we start in practice mode
     mode = "practice"
-    qu = []
-    data = []
+    n99 = 0
+    qu, data = [], []
     block = Block()
 
     for line in rdr:
@@ -340,9 +340,6 @@ def process_vmrk(filename):
         f0 = line[0].split("=")
         fl = f0[1].lower()
         if fl == "comment":
-            # Switch to (or remain in) "experiment" mode
-            if "experiment" in line[1].lower():
-                mode = "experiment"
             continue
         elif fl == "stimulus":
             pass
@@ -351,16 +348,23 @@ def process_vmrk(filename):
             logging.info("Skipping row: %s" % line)
             continue
 
-        if mode != "experiment":
-            continue
-
         # Get the type code, e.g. if S16 then n=16
         f1 = line[1].replace(" ", "")
-        n = int(f1[1:])
-        qu.append(Trial(n, int(line[2])))
+        stimcode = int(f1[1:])
+
+        if mode == "practice" and stimcode == 99:
+            n99 += 1
+            if n99 == 3:
+                mode = "experiment"
+            continue
+
+        if mode == "practice":
+            continue
+
+        qu.append(Trial(stimcode, int(line[2])))
 
         # Handle end of block markers
-        if n in (144, 255):
+        if stimcode in (144, 255):
             if dblock > 0:
                 process_trial(qu[0:-1], block)
                 qu = [qu[-1]]
@@ -371,7 +375,7 @@ def process_vmrk(filename):
             continue
         dblock += 1
 
-        if n == 99:
+        if stimcode == 99:
             process_trial(qu[0:-1], block)
             qu = [qu[-1]]
 
