@@ -326,6 +326,7 @@ def process_vmrk(filename):
     # Assume that we start in practice mode
     mode = "practice"
     n99 = 0
+    n144 = False
     qu, data = [], []
     block = Block()
 
@@ -352,11 +353,14 @@ def process_vmrk(filename):
         f1 = line[1].replace(" ", "")
         stimcode = int(f1[1:])
 
-        if mode == "practice" and stimcode == 99:
-            n99 += 1
-            if n99 == 3:
+        if mode == "practice":
+            if stimcode == 99:
+                n99 += 1
+            if n99 == 3 and stimcode == 144:
+                n144 = True
+            if n99 == 3 and n144 and stimcode == 255:
                 mode = "experiment"
-            continue
+                continue
 
         if mode == "practice":
             continue
