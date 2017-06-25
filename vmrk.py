@@ -2,13 +2,6 @@
 
 """
 Process one VMRK file into a set of summary statistics.
-
-TODO optionally filter outliers
-TODO allow selected blocks to be dropped
-
-The processing is done in two steps.  First run process_vmrk to obtain
-a condensed form of the VMRK data, then run summarize_vmrk to obtain
-the summary statistics.
 """
 
 import csv
@@ -23,7 +16,7 @@ low = 150
 high = 3000
 
 # Should be 1
-ddof = 0
+ddof = 1
 
 class Code(object):
     """
@@ -59,12 +52,13 @@ class Trial(object):
     """
     Raw information about one trial.
     """
-    def __init__(self, srcode, time):
+    def __init__(self, mark, srcode, time):
+        self.mark = mark
         self.srcode = srcode
         self.time = time
 
     def __str__(self):
-        return "srcode=%s time=%d" % (self.srcode, self.time)
+        return "mark=%s srcode=%s time=%d" % (self.mark, self.srcode, self.time)
 
 
 class Block(object):
@@ -72,6 +66,7 @@ class Block(object):
     Holds all information about a block of trials
     """
     def __init__(self):
+        self.Mark = []    # Mark label
         self.Code = []    # Stimulus/response codes
         self.Rtim = []    # Response times
         self.Ntri = []    # Number of responses within a trial
@@ -86,8 +81,9 @@ class Block(object):
         """
         Return all response times with a given stimulus/response code pair.
         """
-        ret = []
-        for j, (c, x) in enumerate(zip(self.Code, self.Rtim)):
+        rtm = []
+        marks = []
+        for j, (m, c, x) in enumerate(zip(self.Mark, self.Code, self.Rtim)):
             if side is not None and c.side != side:
                 continue
             if congruent is not None and c.congruent != congruent:
@@ -97,9 +93,10 @@ class Block(object):
             if lastcorrect is not None and j > 0:
                 if self.Code[j-1].correct != lastcorrect:
                     continue
-            ret.append(x)
+            rtm.append(x)
+            marks.append(m)
 
-        return ret
+        return rtm, marks
 
     def postCorrectRtim(self):
         """
@@ -147,6 +144,7 @@ def process_trial(qu, block):
     # Response time for first response, multiplication by 2 is a scale
     # conversion.
     rt = 2 * (qu[2].time - qu[1].time)
+    block.Mark.append(qu[0].mark)
     block.Code.append(code)
     block.Rtim.append(rt)
     block.Ntri.append(len(qu))
@@ -160,6 +158,7 @@ def collapse_blocks(data):
     """
     blk = Block()
     for block in data:
+        blk.Mark.extend(block.Mark)
         blk.Code.extend(block.Code)
         blk.Rtim.extend(block.Rtim)
         blk.Ntri.extend(block.Ntri)
@@ -201,13 +200,13 @@ def summarize_vmrk(filename, data):
     results["frtsde"] = np.std(error_trials, ddof=ddof)
 
     # Congruent correct trials
-    v = cdata.query(correct=True, congruent=True)
+    v, _ = cdata.query(correct=True, congruent=True)
     results["fccn"] = len(v)
     results["fcrtmc"] = np.mean(v)
     results["fcrtsdc"] = np.std(v, ddof=ddof)
 
     # Congruent error trials
-    v = cdata.query(correct=False, congruent=True)
+    v, _ = cdata.query(correct=False, congruent=True)
     results["fcen"] = len(v)
     results["fcrtme"] = np.mean(v)
     results["fcrtsde"] = np.std(v, ddof=ddof)
@@ -216,13 +215,13 @@ def summarize_vmrk(filename, data):
     results["fcacc"] = 100 * results["fccn"] / (results["fccn"] + results["fcen"])
 
     # Incongruent correct trials
-    v = cdata.query(correct=True, congruent=False)
+    v, _ = cdata.query(correct=True, congruent=False)
     results["ficn"] = len(v)
     results["firtmc"] = np.mean(v)
     results["firtsdc"] = np.std(v, ddof=ddof)
 
     # Incongruent error trials
-    v = cdata.query(correct=False, congruent=False)
+    v, _ = cdata.query(correct=False, congruent=False)
     results["fien"] = len(v)
     results["firtme"] = np.mean(v)
     results["firtsde"] = np.std(v, ddof=ddof)
@@ -232,12 +231,14 @@ def summarize_vmrk(filename, data):
 
     # Post correct correct trials
     # (don't count first trial of each block)
-    v = [b.query(correct=True, lastcorrect=True) for b in data]
+    u = [b.query(correct=True, lastcorrect=True) for b in data]
+    v = [x[0] for x in u]
     results["fpccn"] = sum([max(0, len(x) - 1) for x in v])
 
     # Post correct error trials
     # (don't count first trial of each block)
-    v = [b.query(correct=False, lastcorrect=True) for b in data]
+    u = [b.query(correct=False, lastcorrect=True) for b in data]
+    v = [x[0] for x in u]
     results["fpcen"] = sum([max(0, len(x) - 1) for x in v])
     if results["fpcen"] > 0:
         results["fpcertm"] = sum([sum(x[1:]) for x in v]) / results["fpcen"]
@@ -246,7 +247,8 @@ def summarize_vmrk(filename, data):
 
     # Post error correct trials
     # (don't count first trial of each block)
-    v = [b.query(correct=True, lastcorrect=False) for b in data]
+    u = [b.query(correct=True, lastcorrect=False) for b in data]
+    v = [x[0] for x in u]
     results["fpecn"] = sum([max(0, len(x) - 1) for x in v])
     if results["fpecn"] > 0:
         results["fpecrtm"] = sum([sum(x[1:]) for x in v]) / results["fpecn"]
@@ -255,7 +257,8 @@ def summarize_vmrk(filename, data):
 
     # Post error error trials
     # (don't count first trial of each block)
-    v = [b.query(correct=False, lastcorrect=False) for b in data]
+    u = [b.query(correct=False, lastcorrect=False) for b in data]
+    v = [x[0] for x in u]
     results["fpeen"] = sum([max(0, len(x) - 1) for x in v])
     if results["fpeen"] > 0:
         results["fpeertm"] = sum([sum(x[1:]) for x in v]) / results["fpeen"]
@@ -264,7 +267,8 @@ def summarize_vmrk(filename, data):
 
     # Post error any trials
     # (don't count first trial of each block)
-    v = [b.query(lastcorrect=False) for b in data]
+    u = [b.query(lastcorrect=False) for b in data]
+    v = [x[0] for x in u]
     results["fpexn"] = sum([max(0, len(x) - 1) for x in v])
     if results["fpexn"] > 0:
         results["fpexrtm"] = sum([sum(x[1:]) for x in v]) / results["fpexn"]
@@ -273,7 +277,8 @@ def summarize_vmrk(filename, data):
 
     # Post any error trials
     # (don't count first trial of each block)
-    v = [b.query(correct=False) for b in data]
+    u = [b.query(correct=False) for b in data]
+    v = [x[0] for x in u]
     results["fpxen"] = sum([max(0, len(x) - 1) for x in v])
     if results["fpxen"] > 0:
         results["fpxertm"] = sum([sum(x[1:]) for x in v]) / results["fpxen"]
@@ -339,6 +344,7 @@ def process_vmrk(filename):
 
         # Lines have format Mk###=type, where type=comment, stimulus
         f0 = line[0].split("=")
+        mark = f0[0]
         fl = f0[1].lower()
         if fl == "comment":
             continue
@@ -365,7 +371,7 @@ def process_vmrk(filename):
         if mode == "practice":
             continue
 
-        qu.append(Trial(stimcode, int(line[2])))
+        qu.append(Trial(mark, stimcode, int(line[2])))
 
         # Handle end of block markers
         if stimcode in (144, 255):
