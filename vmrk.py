@@ -15,7 +15,7 @@ from collections import OrderedDict
 low = 150
 high = 3000
 
-# Should be 1
+# Should generally be 1
 ddof = 1
 
 class Code(object):
@@ -72,10 +72,11 @@ class Block(object):
         self.Ntri = []    # Number of responses within a trial
 
     def filter_outliers(self, low, high):
-        ii = [i for i, rt in enumerate(self.Rtim) if (rt >= low) and (rt <= high)]
-        self.Code = [self.Code[i] for i in ii]
-        self.Rtim = [self.Rtim[i] for i in ii]
-        self.Ntri = [self.Ntri[i] for i in ii]
+        for i, rt in enumerate(self.Rtim):
+            if rt < low or rt > high:
+                self.Code[i] = None
+                self.Rtim[i] = None
+                self.Ntri[i] = None
 
     def query(self, side=None, congruent=None, correct=None, lastcorrect=None):
         """
@@ -84,6 +85,8 @@ class Block(object):
         rtm = []
         marks = []
         for j, (m, c, x) in enumerate(zip(self.Mark, self.Code, self.Rtim)):
+            if c is None:
+                continue
             if side is not None and c.side != side:
                 continue
             if congruent is not None and c.congruent != congruent:
@@ -91,35 +94,24 @@ class Block(object):
             if correct is not None and c.correct != correct:
                 continue
             if lastcorrect is not None and j > 0:
-                if self.Code[j-1].correct != lastcorrect:
+                if self.Code[j-1] is None or self.Code[j-1].correct != lastcorrect:
                     continue
             rtm.append(x)
             marks.append(m)
 
         return rtm, marks
 
-    def postCorrectRtim(self):
-        """
-        Return all response times that follow a correct response.
-        """
-        ret = []
-        for k in range(1, len(self.Rtim)):
-            if self.KY[k-1][1] in (5, 6):
-                ret.append(self.Rtim[k])
-        return ret
-
-    def postErrorRtim(self):
-        """
-        Return all response times that follow an error response.
-        """
-        ret = []
-        for k in range(1, len(self.Rtim)):
-            if self.KY[k-1][1] in (5, 6):
-                ret.append(self.Rtim[k])
-        return ret
-
     def __str__(self):
         print(self.RT)
+
+
+# Need to customize this to handle ddof=1 and n=1 (want 0 not NaN in
+# this case).
+def std(x):
+    if len(x) <= 1:
+        return 0
+    return np.std(x, ddof=ddof)
+
 
 def process_trial(qu, block):
     """
@@ -149,8 +141,6 @@ def process_trial(qu, block):
     block.Rtim.append(rt)
     block.Ntri.append(len(qu))
 
-    block.filter_outliers(low, high)
-
 
 def collapse_blocks(data):
     """
@@ -179,9 +169,9 @@ def summarize_vmrk(filename, data):
 
     results["sid"] = filename.split(".")[0]
 
-    all_trials = cdata.Rtim
-    correct_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if k.correct]
-    error_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if not k.correct]
+    all_trials = [x for x in cdata.Rtim if x is not None]
+    correct_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if k is not None and k.correct]
+    error_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if k is not None and not k.correct]
 
     results["fcn"] = len(correct_trials)
     results["fen"] = len(error_trials)
@@ -189,27 +179,27 @@ def summarize_vmrk(filename, data):
 
     # All trial summaries
     results["frtm"] = np.mean(all_trials)
-    results["frtsd"] = np.std(all_trials, ddof=ddof)
+    results["frtsd"] = std(all_trials)
 
     # All correct trial summaries
     results["frtmc"] = np.mean(correct_trials)
-    results["frtsdc"] = np.std(correct_trials, ddof=ddof)
+    results["frtsdc"] = std(correct_trials)
 
     # All error trial summaries
     results["frtme"] = np.mean(error_trials)
-    results["frtsde"] = np.std(error_trials, ddof=ddof)
+    results["frtsde"] = std(error_trials)
 
     # Congruent correct trials
     v, _ = cdata.query(correct=True, congruent=True)
     results["fccn"] = len(v)
     results["fcrtmc"] = np.mean(v)
-    results["fcrtsdc"] = np.std(v, ddof=ddof)
+    results["fcrtsdc"] = std(v)
 
     # Congruent error trials
     v, _ = cdata.query(correct=False, congruent=True)
     results["fcen"] = len(v)
     results["fcrtme"] = np.mean(v)
-    results["fcrtsde"] = np.std(v, ddof=ddof)
+    results["fcrtsde"] = std(v)
 
     # Congruent accuracy
     results["fcacc"] = 100 * results["fccn"] / (results["fccn"] + results["fcen"])
@@ -218,13 +208,13 @@ def summarize_vmrk(filename, data):
     v, _ = cdata.query(correct=True, congruent=False)
     results["ficn"] = len(v)
     results["firtmc"] = np.mean(v)
-    results["firtsdc"] = np.std(v, ddof=ddof)
+    results["firtsdc"] = std(v)
 
     # Incongruent error trials
     v, _ = cdata.query(correct=False, congruent=False)
     results["fien"] = len(v)
     results["firtme"] = np.mean(v)
-    results["firtsde"] = np.std(v, ddof=ddof)
+    results["firtsde"] = std(v)
 
     # Incongruent accuracy
     results["fiacc"] = 100 * results["ficn"] / (results["ficn"] + results["fien"])
@@ -301,7 +291,7 @@ def summarize_vmrk(filename, data):
     results["faen"] = np.sum(np.asarray(error_trials) < 150)
 
     # Trials with extra responses
-    results["fscn"] = sum(np.asarray(cdata.Ntri) > 3)
+    results["fscn"] = sum(np.asarray([x for x in cdata.Ntri if x is not None]) > 3)
 
     return results
 
@@ -380,6 +370,7 @@ def process_vmrk(filename):
                 qu = [qu[-1]]
                 blocknum += 1
                 dblock = 0
+                block.filter_outliers(low, high)
                 data.append(block)
                 block = Block()
             continue
