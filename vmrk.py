@@ -15,12 +15,12 @@ from collections import OrderedDict
 low = 150
 high = 3000
 
-# Should generally be 1
+# Degrees of freedom adjustment for standard deviations, should generally be 1
 ddof = 1
 
 class Code(object):
     """
-    A stimulus/response code
+    A representation of a stimulus/response code
     """
     def __init__(self, side, congruent, correct):
         self.side = side
@@ -50,7 +50,9 @@ class Code(object):
 
 class Trial(object):
     """
-    Raw information about one trial.
+    A representation of a trial.
+
+    A trial is represented by a mark,  stimulus/response code, and a timestamp.
     """
     def __init__(self, mark, srcode, time):
         self.mark = mark
@@ -63,7 +65,7 @@ class Trial(object):
 
 class Block(object):
     """
-    Holds all information about a block of trials
+    A representation of a block of trials
     """
     def __init__(self):
         self.Mark = []    # Mark label
@@ -72,6 +74,12 @@ class Block(object):
         self.Ntri = []    # Number of responses within a trial
 
     def filter_outliers(self, low, high):
+        """
+        Remove outlier trials from the block.
+
+        Outlier trials are replace with None.
+        """
+
         for i, rt in enumerate(self.Rtim):
             if rt < low or rt > high:
                 self.Code[i] = None
@@ -80,7 +88,9 @@ class Block(object):
 
     def query(self, side=None, congruent=None, correct=None, lastcorrect=None):
         """
-        Return all response times with a given stimulus/response code pair.
+        Return all response times with a given stimulus/response status.
+
+        Any of the query parameters that is None is ignored.
         """
         rtm = []
         marks = []
@@ -159,8 +169,8 @@ def summarize_vmrk(filename, data):
     """
     Create summary statistics from a VMRK file.
 
-    The VMRK file must be processed with process_vmrk before running
-    this function.
+    The VMRK file must be processed with the process_vmrk method
+    before running this function.
     """
 
     cdata = collapse_blocks(data)
@@ -388,23 +398,28 @@ def process_vmrk(filename):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) == 1:
-        print("no files")
-        sys.exit(0)
-
-    import csv
-
     logging.basicConfig(filename="vmrk.log", level=logging.DEBUG)
 
-    results = []
-    for i, fname in enumerate(sys.argv[1:]):
+    # Get all the vmrk files from the current directory.
+    files = os.listdir()
+    files = [f for f in files if f.lower().endswith(".vmrk")]
 
+    out = open("results.csv", "w")
+
+    results = []
+    for i, fname in enumerate(files):
+
+        # Process one file
         data = process_vmrk(fname)
         result = summarize_vmrk(fname, data)
 
         if i == 0:
-            wtr = csv.writer(sys.stdout)
+            # Write header on first iteration only.
+            wtr = csv.writer(out)
             header = [k for k in result]
             wtr.writerow(header)
 
+        # Write the results for the current file.
         wtr.writerow([result[k] for k in result])
+
+    out.close()
