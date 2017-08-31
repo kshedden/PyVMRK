@@ -10,6 +10,7 @@ import os
 import sys
 import logging
 from collections import OrderedDict
+import argparse
 
 # Outliers are defined to fall outside the interval (low, high)
 low = 150
@@ -176,7 +177,6 @@ def summarize_vmrk(filename, data):
     cdata = collapse_blocks(data)
 
     results = OrderedDict()
-
     results["sid"] = filename.split(".")[0]
 
     all_trials = [x for x in cdata.Rtim if x is not None]
@@ -330,6 +330,8 @@ def process_vmrk(filename):
 
     # Assume that we start in practice mode
     mode = "practice"
+    if nopractice:
+        mode = "experiment"
     n99 = 0
     n144 = False
     qu, data = [], []
@@ -359,10 +361,11 @@ def process_vmrk(filename):
         f1 = line[1].replace(" ", "")
         stimcode = int(f1[1:])
 
+        # Check for the end of the practice session
         if mode == "practice":
             if stimcode == 99:
                 n99 += 1
-            if n99 == 3 and stimcode == 144:
+            if n99 == 3 and (stimcode == 144 or stimcode == 181):
                 n144 = True
             if n99 == 3 and n144 and stimcode == 255:
                 mode = "experiment"
@@ -399,6 +402,15 @@ def process_vmrk(filename):
 if __name__ == "__main__":
 
     logging.basicConfig(filename="vmrk.log", level=logging.DEBUG)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--nopractice', help='Use all trials without attempting to exclude practice trials',
+                        action='store_const', const=True)
+    args = parser.parse_args()
+
+    nopractice = False
+    if args.nopractice:
+        nopractice = True
 
     # Get all the vmrk files from the current directory.
     files = os.listdir()
