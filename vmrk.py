@@ -10,6 +10,7 @@ import os
 import sys
 import logging
 from collections import OrderedDict
+import copy
 import argparse
 
 # Outliers are defined to fall outside the interval (low, high)
@@ -73,21 +74,21 @@ class Block(object):
         self.Code = []    # Stimulus/response codes
         self.Rtim = []    # Response times
         self.Ntri = []    # Number of responses within a trial
+        self.Outl = []    # Outlier trial indicator
 
-    def filter_outliers(self, low, high):
+    def check_outliers(self, low, high):
         """
-        Remove outlier trials from the block.
+        Identify outlier trials from the block.
 
         Outlier trials are replace with None.
         """
 
         for i, rt in enumerate(self.Rtim):
             if rt < low or rt > high:
-                self.Code[i] = None
-                self.Rtim[i] = None
-                self.Ntri[i] = None
+                self.Outl[i] = True
 
-    def query(self, side=None, congruent=None, correct=None, lastcorrect=None):
+    def query(self, side=None, congruent=None, correct=None, lastcorrect=None, exclude_outliers=True,
+              exclude_first=False):
         """
         Return all response times with a given stimulus/response status.
 
@@ -95,8 +96,10 @@ class Block(object):
         """
         rtm = []
         marks = []
-        for j, (m, c, x) in enumerate(zip(self.Mark, self.Code, self.Rtim)):
-            if c is None:
+        for j, (o, m, c, x) in enumerate(zip(self.Outl, self.Mark, self.Code, self.Rtim)):
+            if exclude_outliers and o:
+                continue
+            if exclude_first and j == 0:
                 continue
             if side is not None and c.side != side:
                 continue
@@ -119,8 +122,8 @@ class Block(object):
 # Need to customize this to handle ddof=1 and n=1 (want 0 not NaN in
 # this case).
 def std(x):
-    if len(x) <= 1:
-        return 0
+    if len(x) <= ddof:
+        return np.nan
     return np.std(x, ddof=ddof)
 
 
@@ -151,6 +154,7 @@ def process_trial(qu, block):
     block.Code.append(code)
     block.Rtim.append(rt)
     block.Ntri.append(len(qu))
+    block.Outl.append(False) # will be set later
 
 
 def collapse_blocks(data):
@@ -163,6 +167,7 @@ def collapse_blocks(data):
         blk.Code.extend(block.Code)
         blk.Rtim.extend(block.Rtim)
         blk.Ntri.extend(block.Ntri)
+        blk.Outl.extend(block.Outl)
     return blk
 
 
@@ -179,9 +184,13 @@ def summarize_vmrk(filename, data):
     results = OrderedDict()
     results["sid"] = filename.split(".")[0]
 
-    all_trials = [x for x in cdata.Rtim if x is not None]
-    correct_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if k is not None and k.correct]
-    error_trials = [x for k,x in zip(cdata.Code, cdata.Rtim) if k is not None and not k.correct]
+    all_trials = [x for o,x in zip(cdata.Outl, cdata.Rtim) if not o]
+    correct_trials = [x for o,k,x in zip(cdata.Outl, cdata.Code, cdata.Rtim) if not o and k.correct]
+    error_trials = [x for o,k,x in zip(cdata.Outl, cdata.Code, cdata.Rtim) if not o and not k.correct]
+
+    # All/error trials without outlier filtering
+    all_trials_all = [x for x in cdata.Rtim]
+    error_trials_all = [x for k,x in zip(cdata.Code, cdata.Rtim) if not k.correct]
 
     results["fcn"] = len(correct_trials)
     results["fen"] = len(error_trials)
@@ -231,57 +240,57 @@ def summarize_vmrk(filename, data):
 
     # Post correct correct trials
     # (don't count first trial of each block)
-    u = [b.query(correct=True, lastcorrect=True) for b in data]
+    u = [b.query(correct=True, lastcorrect=True, exclude_outliers=True, exclude_first=True) for b in data]
     v = [x[0] for x in u]
-    results["fpccn"] = sum([max(0, len(x) - 1) for x in v])
+    results["fpccn"] = sum([len(x) for x in v])
 
     # Post correct error trials
     # (don't count first trial of each block)
-    u = [b.query(correct=False, lastcorrect=True) for b in data]
+    u = [b.query(correct=False, lastcorrect=True, exclude_outliers=True, exclude_first=True) for b in data]
     v = [x[0] for x in u]
-    results["fpcen"] = sum([max(0, len(x) - 1) for x in v])
+    results["fpcen"] = sum([len(x) for x in v])
     if results["fpcen"] > 0:
-        results["fpcertm"] = sum([sum(x[1:]) for x in v]) / results["fpcen"]
+        results["fpcertm"] = sum([sum(x) for x in v]) / results["fpcen"]
     else:
         results["fpcertm"] = 0.
 
     # Post error correct trials
     # (don't count first trial of each block)
-    u = [b.query(correct=True, lastcorrect=False) for b in data]
+    u = [b.query(correct=True, lastcorrect=False, exclude_outliers=True, exclude_first=True) for b in data]
     v = [x[0] for x in u]
-    results["fpecn"] = sum([max(0, len(x) - 1) for x in v])
+    results["fpecn"] = sum([len(x) for x in v])
     if results["fpecn"] > 0:
-        results["fpecrtm"] = sum([sum(x[1:]) for x in v]) / results["fpecn"]
+        results["fpecrtm"] = sum([sum(x) for x in v]) / results["fpecn"]
     else:
         results["fpecrtm"] = 0.
 
     # Post error error trials
     # (don't count first trial of each block)
-    u = [b.query(correct=False, lastcorrect=False) for b in data]
+    u = [b.query(correct=False, lastcorrect=False, exclude_outliers=True, exclude_first=True) for b in data]
     v = [x[0] for x in u]
-    results["fpeen"] = sum([max(0, len(x) - 1) for x in v])
+    results["fpeen"] = sum([len(x) for x in v])
     if results["fpeen"] > 0:
-        results["fpeertm"] = sum([sum(x[1:]) for x in v]) / results["fpeen"]
+        results["fpeertm"] = sum([sum(x) for x in v]) / results["fpeen"]
     else:
         results["fpeertm"] = 0.
 
     # Post error any trials
     # (don't count first trial of each block)
-    u = [b.query(lastcorrect=False) for b in data]
+    u = [b.query(lastcorrect=False, exclude_outliers=True, exclude_first=True) for b in data]
     v = [x[0] for x in u]
-    results["fpexn"] = sum([max(0, len(x) - 1) for x in v])
+    results["fpexn"] = sum([len(x) for x in v])
     if results["fpexn"] > 0:
-        results["fpexrtm"] = sum([sum(x[1:]) for x in v]) / results["fpexn"]
+        results["fpexrtm"] = sum([sum(x) for x in v]) / results["fpexn"]
     else:
         results["fpexrtm"] = 0.
 
     # Post any error trials
     # (don't count first trial of each block)
-    u = [b.query(correct=False) for b in data]
+    u = [b.query(correct=False, exclude_outliers=True, exclude_first=True) for b in data]
     v = [x[0] for x in u]
-    results["fpxen"] = sum([max(0, len(x) - 1) for x in v])
+    results["fpxen"] = sum([len(x) for x in v])
     if results["fpxen"] > 0:
-        results["fpxertm"] = sum([sum(x[1:]) for x in v]) / results["fpxen"]
+        results["fpxertm"] = sum([sum(x) for x in v]) / results["fpxen"]
     else:
         results["fpxertm"] = 0.
 
@@ -296,9 +305,9 @@ def summarize_vmrk(filename, data):
     results["fpes2"] = results["fpcertm"] - results["fpecrtm"]
     results["fpes3"] = results["fpxertm"] - results["fpexrtm"]
 
-    # Anticipatory responses
-    results["fan"] = np.sum(np.asarray(all_trials) < 150)
-    results["faen"] = np.sum(np.asarray(error_trials) < 150)
+    # Anticipatory responses, calculate from all data, prior to removing outliers
+    results["fan"] = np.sum(np.asarray(all_trials_all) < 150)
+    results["faen"] = np.sum(np.asarray(error_trials_all) < 150)
 
     # Trials with extra responses
     results["fscn"] = sum(np.asarray([x for x in cdata.Ntri if x is not None]) > 3)
@@ -318,7 +327,7 @@ def process_vmrk(filename):
     Returns
     -------
     data : list of Blocks
-        data[j] contains all the data for block j.
+        data[j] contains the data for block j, with outliers removed.
     """
 
     fid = open(filename)
@@ -383,7 +392,7 @@ def process_vmrk(filename):
                 qu = [qu[-1]]
                 blocknum += 1
                 dblock = 0
-                block.filter_outliers(low, high)
+                block.check_outliers(low, high)
                 data.append(block)
                 block = Block()
             continue
