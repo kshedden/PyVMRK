@@ -143,7 +143,7 @@ def process_trial(trial, block):
     # stimulus and response.  Return early if this is not the case.
     if len(trial) < 3 or trial[0].srcode != 99:
         sr = trial[0].srcode if len(trial) > 0 else ""
-        logging.info("Skipping trial: length=%d, code=%s" % (len(trial), str(sr)))
+        logging.info("Skipping trial: length=%d (expected 3), code=%s (expected 99)" % (len(trial), str(sr)))
         return
 
     # ky is the stimulus and response type
@@ -193,6 +193,11 @@ def summarize_vmrk(filename, data):
     # All/error trials without outlier filtering
     all_trials_all = [x for x in cdata.Rtim]
     error_trials_all = [x for k,x in zip(cdata.Code, cdata.Rtim) if not k.correct]
+
+    logging.info("Found %d trials" % len(all_trials_all))
+    logging.info("Found %d error trials" % len(error_trials_all))
+    logging.info("Found %d after removing outliers" % len(all_trials))
+    logging.info("Found %d error trials after removing outliers", len(error_trials))
 
     results["fcn"] = len(correct_trials)
     results["fen"] = len(error_trials)
@@ -333,6 +338,7 @@ def process_vmrk(filename):
     """
 
     fid = open(filename)
+    logging.info("Starting file: %s" % filename)
     rdr = csv.reader(fid)
 
     # Keep track of which block we are in
@@ -354,7 +360,7 @@ def process_vmrk(filename):
 
         # Only process "mark" lines
         if len(line) == 0 or not line[0].lower().startswith("mk"):
-            logging.info("Skipping row %d [A]: %s" % (line_num, line))
+            logging.info("Skipping row %d [A]: %s" % (line_num + 1, line))
             continue
 
         # Lines have format Mk###=type, where type=comment, stimulus
@@ -365,7 +371,7 @@ def process_vmrk(filename):
             continue
         elif fl != "stimulus":
             # Not sure what else exists, log it and move on
-            logging.info("Skipping row %d [B]: %s" % (line_num, line))
+            logging.info("Skipping row %d [B]: %s" % (line_num + 1, line))
             continue
 
         # Get the type code, e.g. if S16 then n=16
