@@ -12,4 +12,7 @@ for n in "results.csv", "expected_results.csv":
 obs = a[0]
 exp = a[1]
 
+obs = obs.sort_values(by="sid")
+exp = obs.sort_values(by="sid")
+
 assert_frame_equal(obs, exp)

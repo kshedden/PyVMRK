@@ -127,13 +127,13 @@ def std(x):
     return np.std(x, ddof=ddof)
 
 
-def process_trial(qu, block):
+def process_trial(trial, block):
     """
     Insert summary values obtained from qu into block.
 
     Parameters
     ----------
-    qu :
+    trial :
         Data from a single trial.
     block :
         All data grouped by trial/response type
@@ -141,19 +141,21 @@ def process_trial(qu, block):
 
     # A trial must start with S99 (fixation cross), then have a
     # stimulus and response.  Return early if this is not the case.
-    if len(qu) < 3 or qu[0].srcode != 99:
+    if len(trial) < 3 or trial[0].srcode != 99:
+        sr = trial[0].srcode if len(trial) > 0 else ""
+        logging.info("Skipping trial: length=%d, code=%s" % (len(trial), str(sr)))
         return
 
     # ky is the stimulus and response type
-    code = Code.fromSRCodes(qu[1].srcode, qu[2].srcode)
+    code = Code.fromSRCodes(trial[1].srcode, trial[2].srcode)
 
     # Response time for first response, multiplication by 2 is a scale
     # conversion.
-    rt = 2 * (qu[2].time - qu[1].time)
-    block.Mark.append(qu[0].mark)
+    rt = 2 * (trial[2].time - trial[1].time)
+    block.Mark.append(trial[0].mark)
     block.Code.append(code)
     block.Rtim.append(rt)
-    block.Ntri.append(len(qu))
+    block.Ntri.append(len(trial))
     block.Outl.append(False) # will be set later
 
 
@@ -343,14 +345,16 @@ def process_vmrk(filename):
         mode = "experiment"
     n99 = 0
     n144 = False
-    qu, data = [], []
+    trials, data = [], []
     block = Block()
 
-    for line in rdr:
+    nn = 0
+
+    for line_num, line in enumerate(rdr):
 
         # Only process "mark" lines
-        if len(line) == 0 or not line[0].startswith("Mk"):
-            logging.info("Skipping row: %s" % line)
+        if len(line) == 0 or not line[0].lower().startswith("mk"):
+            logging.info("Skipping row %d [A]: %s" % (line_num, line))
             continue
 
         # Lines have format Mk###=type, where type=comment, stimulus
@@ -359,11 +363,9 @@ def process_vmrk(filename):
         fl = f0[1].lower()
         if fl == "comment":
             continue
-        elif fl == "stimulus":
-            pass
-        else:
+        elif fl != "stimulus":
             # Not sure what else exists, log it and move on
-            logging.info("Skipping row: %s" % line)
+            logging.info("Skipping row %d [B]: %s" % (line_num, line))
             continue
 
         # Get the type code, e.g. if S16 then n=16
@@ -378,18 +380,19 @@ def process_vmrk(filename):
                 n144 = True
             if n99 == 3 and n144 and stimcode == 255:
                 mode = "experiment"
+                logging.info("Starting experiment mode on row %d" % (line_num + 2))
                 continue
 
         if mode == "practice":
             continue
 
-        qu.append(Trial(mark, stimcode, int(line[2])))
+        trials.append(Trial(mark, stimcode, int(line[2])))
 
         # Handle end of block markers
         if stimcode in (144, 255):
             if dblock > 0:
-                process_trial(qu[0:-1], block)
-                qu = [qu[-1]]
+                process_trial(trials[0:-1], block)
+                trials = [trials[-1]]
                 blocknum += 1
                 dblock = 0
                 block.check_outliers(low, high)
@@ -399,18 +402,18 @@ def process_vmrk(filename):
         dblock += 1
 
         if stimcode == 99:
-            process_trial(qu[0:-1], block)
-            qu = [qu[-1]]
+            process_trial(trials[0:-1], block)
+            trials = [trials[-1]]
 
     # Final trial may not have been processed
-    process_trial(qu, block)
+    process_trial(trials, block)
 
     return data
 
 
 if __name__ == "__main__":
 
-    logging.basicConfig(filename="vmrk.log", level=logging.DEBUG)
+    logging.basicConfig(filename="vmrk.log", level=logging.DEBUG, filemode='w')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--nopractice', help='Use all trials without attempting to exclude practice trials',
