@@ -7,10 +7,8 @@ Process one VMRK file into a set of summary statistics.
 import csv
 import numpy as np
 import os
-import sys
 import logging
 from collections import OrderedDict
-import copy
 import argparse
 
 # Outliers are defined to fall outside the interval (low, high)
@@ -19,6 +17,7 @@ high = 3000
 
 # Degrees of freedom adjustment for standard deviations, should generally be 1
 ddof = 1
+
 
 class Code(object):
     """
@@ -62,7 +61,8 @@ class Trial(object):
         self.time = time
 
     def __str__(self):
-        return "mark=%s srcode=%s time=%d" % (self.mark, self.srcode, self.time)
+        return "mark=%s srcode=%s time=%d" % (
+                self.mark, self.srcode, self.time)
 
 
 class Block(object):
@@ -87,8 +87,8 @@ class Block(object):
             if rt < low or rt > high:
                 self.Outl[i] = True
 
-    def query(self, side=None, congruent=None, correct=None, lastcorrect=None, exclude_outliers=True,
-              exclude_first=False):
+    def query(self, side=None, congruent=None, correct=None, lastcorrect=None,
+              exclude_outliers=True, exclude_first=False):
         """
         Return all response times with a given stimulus/response status.
 
@@ -96,7 +96,8 @@ class Block(object):
         """
         rtm = []
         marks = []
-        for j, (o, m, c, x) in enumerate(zip(self.Outl, self.Mark, self.Code, self.Rtim)):
+        for j, (o, m, c, x) in enumerate(
+                  zip(self.Outl, self.Mark, self.Code, self.Rtim)):
             if exclude_outliers and o:
                 continue
             if exclude_first and j == 0:
@@ -108,7 +109,8 @@ class Block(object):
             if correct is not None and c.correct != correct:
                 continue
             if lastcorrect is not None and j > 0:
-                if self.Code[j-1] is None or self.Code[j-1].correct != lastcorrect:
+                if (self.Code[j-1] is None or
+                   self.Code[j-1].correct != lastcorrect):
                     continue
             rtm.append(x)
             marks.append(m)
@@ -143,7 +145,9 @@ def process_trial(trial, block):
     # stimulus and response.  Return early if this is not the case.
     if len(trial) < 3 or trial[0].srcode != 99:
         sr = trial[0].srcode if len(trial) > 0 else ""
-        logging.info("Skipping trial: length=%d (expected 3), code=%s (expected 99)" % (len(trial), str(sr)))
+        logging.info(
+            "Skipping trial: length=%d (expected 3), code=%s (expected 99)"
+            % (len(trial), str(sr)))
         return
 
     # ky is the stimulus and response type
@@ -156,7 +160,7 @@ def process_trial(trial, block):
     block.Code.append(code)
     block.Rtim.append(rt)
     block.Ntri.append(len(trial))
-    block.Outl.append(False) # will be set later
+    block.Outl.append(False)  # will be set later
 
 
 def collapse_blocks(data):
@@ -190,18 +194,22 @@ def summarize_vmrk(filename, data):
     results = OrderedDict()
     results["sid"] = filename.split(".")[0]
 
-    all_trials = [x for o,x in zip(cdata.Outl, cdata.Rtim) if not o]
-    correct_trials = [x for o,k,x in zip(cdata.Outl, cdata.Code, cdata.Rtim) if not o and k.correct]
-    error_trials = [x for o,k,x in zip(cdata.Outl, cdata.Code, cdata.Rtim) if not o and not k.correct]
+    all_trials = [x for o, x in zip(cdata.Outl, cdata.Rtim) if not o]
+    correct_trials = [x for o, k, x in zip(cdata.Outl, cdata.Code, cdata.Rtim)
+                      if not o and k.correct]
+    error_trials = [x for o, k, x in zip(cdata.Outl, cdata.Code, cdata.Rtim)
+                    if not o and not k.correct]
 
     # All/error trials without outlier filtering
     all_trials_all = [x for x in cdata.Rtim]
-    error_trials_all = [x for k,x in zip(cdata.Code, cdata.Rtim) if not k.correct]
+    error_trials_all = [x for k, x in zip(cdata.Code, cdata.Rtim)
+                        if not k.correct]
 
     logging.info("Found %d trials" % len(all_trials_all))
     logging.info("Found %d error trials" % len(error_trials_all))
     logging.info("Found %d after removing outliers" % len(all_trials))
-    logging.info("Found %d error trials after removing outliers", len(error_trials))
+    logging.info("Found %d error trials after removing outliers",
+                 len(error_trials))
 
     results["fcn"] = len(correct_trials)
     results["fen"] = len(error_trials)
@@ -232,7 +240,8 @@ def summarize_vmrk(filename, data):
     results["fcrtsde"] = std(v)
 
     # Congruent accuracy
-    results["fcacc"] = 100 * results["fccn"] / (results["fccn"] + results["fcen"])
+    tot = results["fccn"] + results["fcen"]
+    results["fcacc"] = 100 * results["fccn"] / tot
 
     # Incongruent correct trials
     v, _ = cdata.query(correct=True, congruent=False)
@@ -247,17 +256,20 @@ def summarize_vmrk(filename, data):
     results["firtsde"] = std(v)
 
     # Incongruent accuracy
-    results["fiacc"] = 100 * results["ficn"] / (results["ficn"] + results["fien"])
+    tot = results["ficn"] + results["fien"]
+    results["fiacc"] = 100 * results["ficn"] / tot
 
     # Post correct correct trials
     # (don't count first trial of each block)
-    u = [b.query(correct=True, lastcorrect=True, exclude_outliers=True, exclude_first=True) for b in data]
+    u = [b.query(correct=True, lastcorrect=True, exclude_outliers=True,
+         exclude_first=True) for b in data]
     v = [x[0] for x in u]
     results["fpccn"] = sum([len(x) for x in v])
 
     # Post correct error trials
     # (don't count first trial of each block)
-    u = [b.query(correct=False, lastcorrect=True, exclude_outliers=True, exclude_first=True) for b in data]
+    u = [b.query(correct=False, lastcorrect=True, exclude_outliers=True,
+         exclude_first=True) for b in data]
     v = [x[0] for x in u]
     results["fpcen"] = sum([len(x) for x in v])
     if results["fpcen"] > 0:
@@ -267,7 +279,8 @@ def summarize_vmrk(filename, data):
 
     # Post error correct trials
     # (don't count first trial of each block)
-    u = [b.query(correct=True, lastcorrect=False, exclude_outliers=True, exclude_first=True) for b in data]
+    u = [b.query(correct=True, lastcorrect=False, exclude_outliers=True,
+                 exclude_first=True) for b in data]
     v = [x[0] for x in u]
     results["fpecn"] = sum([len(x) for x in v])
     if results["fpecn"] > 0:
@@ -277,7 +290,8 @@ def summarize_vmrk(filename, data):
 
     # Post error error trials
     # (don't count first trial of each block)
-    u = [b.query(correct=False, lastcorrect=False, exclude_outliers=True, exclude_first=True) for b in data]
+    u = [b.query(correct=False, lastcorrect=False, exclude_outliers=True,
+         exclude_first=True) for b in data]
     v = [x[0] for x in u]
     results["fpeen"] = sum([len(x) for x in v])
     if results["fpeen"] > 0:
@@ -287,7 +301,8 @@ def summarize_vmrk(filename, data):
 
     # Post error any trials
     # (don't count first trial of each block)
-    u = [b.query(lastcorrect=False, exclude_outliers=True, exclude_first=True) for b in data]
+    u = [b.query(lastcorrect=False, exclude_outliers=True, exclude_first=True)
+         for b in data]
     v = [x[0] for x in u]
     results["fpexn"] = sum([len(x) for x in v])
     if results["fpexn"] > 0:
@@ -297,7 +312,8 @@ def summarize_vmrk(filename, data):
 
     # Post any error trials
     # (don't count first trial of each block)
-    u = [b.query(correct=False, exclude_outliers=True, exclude_first=True) for b in data]
+    u = [b.query(correct=False, exclude_outliers=True, exclude_first=True)
+         for b in data]
     v = [x[0] for x in u]
     results["fpxen"] = sum([len(x) for x in v])
     if results["fpxen"] > 0:
@@ -306,22 +322,26 @@ def summarize_vmrk(filename, data):
         results["fpxertm"] = 0.
 
     # Post correct accuracy
-    results["faccpc"] = results["fpccn"] / (results["fpccn"] + results["fpcen"])
+    tot = results["fpccn"] + results["fpcen"]
+    results["faccpc"] = results["fpccn"] / tot
 
     # Post error accuracy
-    results["faccpe"] = results["fpecn"] / (results["fpecn"] + results["fpeen"])
+    tot = results["fpecn"] + results["fpeen"]
+    results["faccpe"] = results["fpecn"] / tot
 
     # Post error slowing
     results["fpes"] = results["fpeertm"] - results["fpecrtm"]
     results["fpes2"] = results["fpcertm"] - results["fpecrtm"]
     results["fpes3"] = results["fpxertm"] - results["fpexrtm"]
 
-    # Anticipatory responses, calculate from all data, prior to removing outliers
+    # Anticipatory responses, calculate from all data, prior to removing
+    # outliers
     results["fan"] = np.sum(np.asarray(all_trials_all) < 150)
     results["faen"] = np.sum(np.asarray(error_trials_all) < 150)
 
     # Trials with extra responses
-    results["fscn"] = sum(np.asarray([x for x in cdata.Ntri if x is not None]) > 3)
+    u = np.asarray([x for x in cdata.Ntri if x is not None])
+    results["fscn"] = sum(u > 3)
 
     return results
 
@@ -358,8 +378,6 @@ def process_vmrk(filename):
     trials, data = [], []
     block = Block()
 
-    nn = 0
-
     for line_num, line in enumerate(rdr):
 
         # Only process "mark" lines
@@ -390,7 +408,8 @@ def process_vmrk(filename):
                 n144 = True
             if n99 == 3 and n144 and stimcode == 255:
                 mode = "experiment"
-                logging.info("Starting experiment mode on row %d" % (line_num + 2))
+                logging.info(
+                    "Starting experiment mode on row %d" % (line_num + 2))
                 continue
 
         if mode == "practice":
@@ -426,8 +445,10 @@ if __name__ == "__main__":
     logging.basicConfig(filename="vmrk.log", level=logging.DEBUG, filemode='w')
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--nopractice', help='Use all trials without attempting to exclude practice trials',
-                        action='store_const', const=True)
+    parser.add_argument(
+         '--nopractice',
+         help='Use all trials without attempting to exclude practice trials',
+         action='store_const', const=True)
     args = parser.parse_args()
 
     nopractice = False
