@@ -183,6 +183,10 @@ def summarize_vmrk(filename, data):
 
     cdata = collapse_blocks(data)
 
+    # Count the number of trials per block
+    bc = [len(b.Outl) - np.sum(b.Outl) for b in data]
+    logging.info("Trials per block: " + str(bc))
+
     results = OrderedDict()
     results["sid"] = filename.split(".")[0]
 
